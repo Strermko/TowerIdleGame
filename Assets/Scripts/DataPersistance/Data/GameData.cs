@@ -4,7 +4,7 @@ using System.Collections.Generic;
 public class GameData
 {
     public Dictionary<ResourceType, int> resources = new Dictionary<ResourceType, int>();
-    
+
     public GameData()
     {
         foreach (ResourceType resource in System.Enum.GetValues(typeof(ResourceType)))

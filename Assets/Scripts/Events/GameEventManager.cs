@@ -19,7 +19,6 @@ public class GameEventManager : MonoBehaviour
     public event Action<ResourceType, int> addResource;
     public void AddResource(ResourceType type, int value)
     {
-        Debug.Log($"{type} was clicked!" );
         addResource?.Invoke(type, value);
     }
 }

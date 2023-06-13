@@ -1,19 +1,23 @@
 using System;
 using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEngine;
 
 public class GUIResourceManager : MonoBehaviour, IDataPersistance
 {
     private Dictionary<ResourceType, ResourceComponent> _resourceComponents = new Dictionary<ResourceType, ResourceComponent>();
 
-    private void Start()
+    private void Awake()
     {
         Array allResources = GetComponentsInChildren<ResourceComponent>();
         foreach (ResourceComponent resource in allResources)
         {
-            Debug.Log(resource.resourceType);
             _resourceComponents.Add(resource.resourceType, resource);
         }
+    }
+
+    private void Start()
+    {
         GameEventManager.Instance.addResource += AddResource;
     }
 
@@ -24,17 +28,24 @@ public class GUIResourceManager : MonoBehaviour, IDataPersistance
     
     private void AddResource(ResourceType resourceType, int value)
     {
-        ResourceComponent resourceComponent = _resourceComponents[resourceType];
-        resourceComponent.UpdateComponent(value);
+        _resourceComponents[resourceType].UpdateComponent(value);
     }
 
     public void LoadData(GameData gameData)
     {
-        //textField.text = gameData.resources[resourceType].ToString();
+
+        foreach (var resource in _resourceComponents)
+        {
+            gameData.resources.TryGetValue(resource.Key, out int value);
+            resource.Value.UpdateComponent(value);
+        }
     }
 
     public void SaveData(ref GameData gameData)
     {
-        throw new System.NotImplementedException();
+        foreach (var resource in _resourceComponents)
+        {
+            gameData.resources[resource.Key] = resource.Value.currentValue;
+        }
     }
 }
