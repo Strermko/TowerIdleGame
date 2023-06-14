@@ -5,12 +5,21 @@ using UnityEngine.Serialization;
 public class ResourceGenerator : MonoBehaviour, IPointerClickHandler
 {
     [SerializeField] private Texture2D cursorTexture;
+    [SerializeField] private PopupTextComponent popupTextPrefab;
     [SerializeField] private ResourceType resourceType;
     [SerializeField] private int clickValue = 1;
 
     public void OnPointerClick(PointerEventData eventData)
     {
         GameEventManager.Instance.AddResource(resourceType, clickValue);
+
+        if (!Camera.main) return;
+        var ray = Camera.main.ScreenPointToRay(eventData.position);
+        
+        if (!Physics.Raycast(ray, out var raycastHit)) return;
+        
+        var popupText = Instantiate(popupTextPrefab, raycastHit.point, Quaternion.identity);
+        popupText.Setup(clickValue);
     }
 
     private void OnMouseEnter()
