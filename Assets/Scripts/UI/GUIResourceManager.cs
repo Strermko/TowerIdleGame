@@ -5,12 +5,12 @@ using UnityEngine;
 
 public class GUIResourceManager : MonoBehaviour, IDataPersistance
 {
-    private Dictionary<ResourceType, ResourceComponent> _resourceComponents = new Dictionary<ResourceType, ResourceComponent>();
+    private Dictionary<ResourceType, ResourcesUI> _resourceComponents = new Dictionary<ResourceType, ResourcesUI>();
 
     private void Awake()
     {
-        Array allResources = GetComponentsInChildren<ResourceComponent>();
-        foreach (ResourceComponent resource in allResources)
+        Array allResources = GetComponentsInChildren<ResourcesUI>();
+        foreach (ResourcesUI resource in allResources)
         {
             _resourceComponents.Add(resource.resourceType, resource);
         }
