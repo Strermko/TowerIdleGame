@@ -13,7 +13,8 @@ public class UpgradesUI : MonoBehaviour
     private void Awake()
     {
         if(animationParameterName.Length <= 0) Debug.LogError("Parameter name in not defined!");
-        _animator = GetComponent<Animator>();
+        
+        _animator ??= GetComponent<Animator>();
         gameObject.SetActive(false);
     }
 
