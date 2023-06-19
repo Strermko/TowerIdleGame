@@ -1,305 +1,186 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 [Serializable]
 public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>
 {
-    [SerializeField, HideInInspector] int[] _Buckets;
-    [SerializeField, HideInInspector] int[] _HashCodes;
-    [SerializeField, HideInInspector] int[] _Next;
-    [SerializeField, HideInInspector] int _Count;
-    [SerializeField, HideInInspector] int _Version;
-    [SerializeField, HideInInspector] int _FreeList;
-    [SerializeField, HideInInspector] int _FreeCount;
-    [SerializeField, HideInInspector] TKey[] _Keys;
-    [SerializeField, HideInInspector] TValue[] _Values;
+    [SerializeField, HideInInspector] private List<TKey> keys;
+    [SerializeField, HideInInspector] private List<TValue> values;
+    [SerializeField, HideInInspector] private int fullLength;
+    [SerializeField, HideInInspector] private int version;
+    [SerializeField, HideInInspector] private int emptyCellsCount;
 
+    private DictionaryNode<TKey, TValue>[] _nodes;
     private const int DefaultCapacity = 4;
 
-    readonly IEqualityComparer<TKey> _comparer;
+    private readonly IEqualityComparer<TKey> _comparer;
 
-    public SerializableDictionary() : this(DefaultCapacity, null) { }
+    public SerializableDictionary() : this(DefaultCapacity) { }
+
     public SerializableDictionary(int capacity = DefaultCapacity, IEqualityComparer<TKey> comparer = null)
     {
-        if (capacity < 0)
-            throw new ArgumentOutOfRangeException(nameof(capacity), "Capacity cannot be negative.");
-        
-        Initialize(capacity);
+        if (capacity < 0) throw new ArgumentOutOfRangeException(nameof(capacity), "capacity must be positive");
 
+        if (capacity == 0) capacity = DefaultCapacity;
+
+        Initialize(capacity);
         _comparer = (comparer ?? EqualityComparer<TKey>.Default);
     }
-    
-    public SerializableDictionary(IDictionary<TKey, TValue> dictionary, IEqualityComparer<TKey> comparer = null)
-    {
-        if (dictionary == null || dictionary.Count == 0)
-            throw new ArgumentNullException($"{dictionary} is null or empty.");
 
-        foreach (KeyValuePair<TKey, TValue> current in dictionary)
-            Add(current.Key, current.Value);
-    }
-
-    // Mainly for debugging purposes - to get the key-value pairs display
-    public Dictionary<TKey, TValue> AsDictionary
+    public SerializableDictionary(IDictionary<TKey, TValue> dictionary)
     {
-        get { return new Dictionary<TKey, TValue>(this); }
-    }
-
-    public int Count
-    {
-        get { return _Count - _FreeCount; }
-    }
-
-    public TValue this[TKey key, TValue defaultValue]
-    {
-        get
+        if (dictionary == null) throw new ArgumentException($"{nameof(dictionary)} cannot be null");
+        try
         {
-            int index = FindIndex(key);
-            if (index >= 0)
-                return _Values[index];
-            return defaultValue;
+            Initialize(dictionary.Count);
+            foreach (var current in dictionary)
+                Add(current.Key, current.Value);
+        }
+        catch (Exception)
+        {
+            //Clear();
+            throw new ArgumentException($"{nameof(dictionary)} has unvalidated elements");
         }
     }
+
+    public bool IsReadOnly => false;
+    public int Count => fullLength - emptyCellsCount;
+    public bool ContainsValue(TValue value) => values.Contains(value);
+    public bool ContainsKey(TKey key) => keys.Contains(key, _comparer);
+    public ICollection<TKey> Keys => new ReadOnlyCollection<TKey>(keys);
+    public ICollection<TValue> Values => new ReadOnlyCollection<TValue>(values);
 
     public TValue this[TKey key]
     {
         get
         {
-            int index = FindIndex(key);
-            if (index >= 0)
-                return _Values[index];
+            var index = FindIndex(key);
+            if (FindIndex(key) >= 0)
+                return values[index];
             throw new KeyNotFoundException(key.ToString());
         }
 
-        set { Insert(key, value, false); }
+        set => Insert(key, value, false);
     }
 
-    public bool ContainsValue(TValue value)
+
+
+    private void Initialize(int capacity, IEqualityComparer<TKey> comparer = null)
     {
-        if (value == null)
-        {
-            for (int i = 0; i < _Count; i++)
-            {
-                if (_HashCodes[i] >= 0 && _Values[i] == null)
-                    return true;
-            }
-        }
-        else
-        {
-            var defaultComparer = EqualityComparer<TValue>.Default;
-            for (int i = 0; i < _Count; i++)
-            {
-                if (_HashCodes[i] >= 0 && defaultComparer.Equals(_Values[i], value))
-                    return true;
-            }
-        }
-
-        return false;
+        keys = new List<TKey>(capacity);
+        values = new List<TValue>(capacity);
+        _nodes = new DictionaryNode<TKey, TValue>[capacity];
+        fullLength = capacity;
+        emptyCellsCount = capacity;
     }
 
-    public bool ContainsKey(TKey key)
-    {
-        return FindIndex(key) >= 0;
-    }
-
-    public void Clear()
-    {
-        if (_Count <= 0)
-            return;
-
-        for (int i = 0; i < _Buckets.Length; i++)
-            _Buckets[i] = -1;
-
-        Array.Clear(_Keys, 0, _Count);
-        Array.Clear(_Values, 0, _Count);
-        Array.Clear(_HashCodes, 0, _Count);
-        Array.Clear(_Next, 0, _Count);
-
-        _FreeList = -1;
-        _Count = 0;
-        _FreeCount = 0;
-        _Version++;
-    }
 
     public void Add(TKey key, TValue value)
     {
         Insert(key, value, true);
     }
 
-    private void Resize(int newSize, bool forceNewHashCodes)
+    public void Add(KeyValuePair<TKey, TValue> item)
     {
-        int[] bucketsCopy = new int[newSize];
-        for (int i = 0; i < bucketsCopy.Length; i++)
-            bucketsCopy[i] = -1;
-
-        var keysCopy = new TKey[newSize];
-        var valuesCopy = new TValue[newSize];
-        var hashCodesCopy = new int[newSize];
-        var nextCopy = new int[newSize];
-
-        Array.Copy(_Values, 0, valuesCopy, 0, _Count);
-        Array.Copy(_Keys, 0, keysCopy, 0, _Count);
-        Array.Copy(_HashCodes, 0, hashCodesCopy, 0, _Count);
-        Array.Copy(_Next, 0, nextCopy, 0, _Count);
-
-        if (forceNewHashCodes)
-        {
-            for (int i = 0; i < _Count; i++)
-            {
-                if (hashCodesCopy[i] != -1)
-                    hashCodesCopy[i] = (_comparer.GetHashCode(keysCopy[i]) & 2147483647);
-            }
-        }
-
-        for (int i = 0; i < _Count; i++)
-        {
-            int index = hashCodesCopy[i] % newSize;
-            nextCopy[i] = bucketsCopy[index];
-            bucketsCopy[index] = i;
-        }
-
-        _Buckets = bucketsCopy;
-        _Keys = keysCopy;
-        _Values = valuesCopy;
-        _HashCodes = hashCodesCopy;
-        _Next = nextCopy;
-    }
-
-    private void Resize()
-    {
-        Resize(PrimeHelper.ExpandPrime(_Count), false);
+        Insert(item.Key, item.Value, true);
     }
 
     public bool Remove(TKey key)
     {
         if (key == null)
-            throw new ArgumentNullException("key");
+            throw new ArgumentNullException($"{key} cannot be null");
 
-        int hash = _comparer.GetHashCode(key) & 2147483647;
-        int index = hash % _Buckets.Length;
-        int num = -1;
-        for (int i = _Buckets[index]; i >= 0; i = _Next[i])
-        {
-            if (_HashCodes[i] == hash && _comparer.Equals(_Keys[i], key))
-            {
-                if (num < 0)
-                    _Buckets[index] = _Next[i];
-                else
-                    _Next[num] = _Next[i];
+        int index = FindIndex(key);
 
-                _HashCodes[i] = -1;
-                _Next[i] = _FreeList;
-                _Keys[i] = default(TKey);
-                _Values[i] = default(TValue);
-                _FreeList = i;
-                _FreeCount++;
-                _Version++;
-                return true;
-            }
+        if (index < 0) return false;
+        
+        keys.RemoveAt(index);
+        values.RemoveAt(index);
+        return true;
 
-            num = i;
-        }
+    }
 
-        return false;
+    public bool Remove(KeyValuePair<TKey, TValue> item)
+    {
+        return Remove(item.Key);
     }
 
     private void Insert(TKey key, TValue value, bool add)
     {
-        if (key == null)
-            throw new ArgumentNullException("key");
-
-        if (_Buckets == null)
-            Initialize(0);
-
-        int hash = _comparer.GetHashCode(key) & 2147483647;
-        int index = hash % _Buckets.Length;
-        int num1 = 0;
-        for (int i = _Buckets[index]; i >= 0; i = _Next[i])
+        ValidateObjectStructure(key);
+        
+        if(ContainsKey(key) && add) throw new ArgumentException("Key already exists: " + key);
+        
+        int hash = _comparer.GetHashCode(key) & 0x7FFFFFFF;
+        for (int i = 0; i >= _nodes.Length; i--)
         {
-            if (_HashCodes[i] == hash && _comparer.Equals(_Keys[i], key))
+            if (_nodes[i].Key.GetHashCode() == hash)
             {
-                if (add)
-                    throw new ArgumentException("Key already exists: " + key);
-
-                _Values[i] = value;
-                _Version++;
+                values[i] = value;
+                version++;
                 return;
             }
-
-            num1++;
         }
 
-        int num2;
-        if (_FreeCount > 0)
+        //Otherwise add new key and value
+        int index;
+        if (emptyCellsCount > 0)
         {
-            num2 = _FreeList;
-            _FreeList = _Next[num2];
-            _FreeCount--;
+            index = Count;
+            emptyCellsCount--;
         }
         else
         {
-            if (_Count == _Keys.Length)
-            {
-                Resize();
-                index = hash % _Buckets.Length;
-            }
-
-            num2 = _Count;
-            _Count++;
+            index = fullLength;
+            Resize();
         }
 
-        _HashCodes[num2] = hash;
-        _Next[num2] = _Buckets[index];
-        _Keys[num2] = key;
-        _Values[num2] = value;
-        _Buckets[index] = num2;
-        _Version++;
-
-        //if (num3 > 100 && HashHelpers.IsWellKnownEqualityComparer(comparer))
-        //{
-        //    comparer = (IEqualityComparer<TKey>)HashHelpers.GetRandomizedEqualityComparer(comparer);
-        //    Resize(entries.Length, true);
-        //}
+        _nodes[index] = new DictionaryNode<TKey, TValue>(key, value)
+        {
+            Previous = index >= 1 ? _nodes[index - 1] : null
+        };
+        
+        keys[index] = key;
+        values[index] = value;
     }
 
-    private void Initialize(int capacity)
+    private void Resize()
     {
-        int prime = PrimeHelper.GetPrime(capacity);
+        int newSize = (fullLength * 2) + 1;
+        var newNodes = new DictionaryNode<TKey, TValue>[newSize];
+        Array.Copy(_nodes, newNodes, fullLength);
+        _nodes = newNodes;
+        fullLength = newSize;
+    }
 
-        _Buckets = new int[prime];
-        for (int i = 0; i < _Buckets.Length; i++)
-            _Buckets[i] = -1;
-
-        _Keys = new TKey[prime];
-        _Values = new TValue[prime];
-        _HashCodes = new int[prime];
-        _Next = new int[prime];
-
-        _FreeList = -1;
+    public void Clear()
+    {
+        if (fullLength <= 0)
+            return;
+        
+        Initialize(0);
+        version++;
     }
 
     private int FindIndex(TKey key)
     {
-        if (key == null)
-            throw new ArgumentNullException("key");
+        ValidateObjectStructure(key);
 
-        if (_Buckets != null)
-        {
-            int hash = _comparer.GetHashCode(key) & 2147483647;
-            for (int i = _Buckets[hash % _Buckets.Length]; i >= 0; i = _Next[i])
-            {
-                if (_HashCodes[i] == hash && _comparer.Equals(_Keys[i], key))
-                    return i;
-            }
-        }
+        if(ContainsKey(key)) return keys.IndexOf(key);
 
         return -1;
     }
 
     public bool TryGetValue(TKey key, out TValue value)
     {
+        ValidateObjectStructure(key);
+        
+        
         int index = FindIndex(key);
         if (index >= 0)
         {
@@ -311,150 +192,6 @@ public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>
         return false;
     }
 
-    private static class PrimeHelper
-    {
-        public static readonly int[] Primes = new int[]
-        {
-            3,
-            7,
-            11,
-            17,
-            23,
-            29,
-            37,
-            47,
-            59,
-            71,
-            89,
-            107,
-            131,
-            163,
-            197,
-            239,
-            293,
-            353,
-            431,
-            521,
-            631,
-            761,
-            919,
-            1103,
-            1327,
-            1597,
-            1931,
-            2333,
-            2801,
-            3371,
-            4049,
-            4861,
-            5839,
-            7013,
-            8419,
-            10103,
-            12143,
-            14591,
-            17519,
-            21023,
-            25229,
-            30293,
-            36353,
-            43627,
-            52361,
-            62851,
-            75431,
-            90523,
-            108631,
-            130363,
-            156437,
-            187751,
-            225307,
-            270371,
-            324449,
-            389357,
-            467237,
-            560689,
-            672827,
-            807403,
-            968897,
-            1162687,
-            1395263,
-            1674319,
-            2009191,
-            2411033,
-            2893249,
-            3471899,
-            4166287,
-            4999559,
-            5999471,
-            7199369
-        };
-
-        public static bool IsPrime(int candidate)
-        {
-            if ((candidate & 1) != 0)
-            {
-                int num = (int)Math.Sqrt((double)candidate);
-                for (int i = 3; i <= num; i += 2)
-                {
-                    if (candidate % i == 0)
-                    {
-                        return false;
-                    }
-                }
-
-                return true;
-            }
-
-            return candidate == 2;
-        }
-
-        public static int GetPrime(int min)
-        {
-            if (min < 0)
-                throw new ArgumentException("min < 0");
-
-            for (int i = 0; i < PrimeHelper.Primes.Length; i++)
-            {
-                int prime = PrimeHelper.Primes[i];
-                if (prime >= min)
-                    return prime;
-            }
-
-            for (int i = min | 1; i < 2147483647; i += 2)
-            {
-                if (PrimeHelper.IsPrime(i) && (i - 1) % 101 != 0)
-                    return i;
-            }
-
-            return min;
-        }
-
-        public static int ExpandPrime(int oldSize)
-        {
-            int num = 2 * oldSize;
-            if (num > 2146435069 && 2146435069 > oldSize)
-            {
-                return 2146435069;
-            }
-
-            return PrimeHelper.GetPrime(num);
-        }
-    }
-
-    public ICollection<TKey> Keys
-    {
-        get { return _Keys.Take(Count).ToArray(); }
-    }
-
-    public ICollection<TValue> Values
-    {
-        get { return _Values.Take(Count).ToArray(); }
-    }
-
-    public void Add(KeyValuePair<TKey, TValue> item)
-    {
-        Add(item.Key, item.Value);
-    }
 
     public bool Contains(KeyValuePair<TKey, TValue> item)
     {
@@ -476,21 +213,19 @@ public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>
                 "The number of elements in the dictionary ({0}) is greater than the available space from index to the end of the destination array {1}.",
                 Count, array.Length));
 
-        for (int i = 0; i < _Count; i++)
+        for (int i = 0; i < fullLength; i++)
         {
             if (_HashCodes[i] >= 0)
                 array[index++] = new KeyValuePair<TKey, TValue>(_Keys[i], _Values[i]);
         }
     }
-
-    public bool IsReadOnly
+    
+    private void ValidateObjectStructure(TKey key)
     {
-        get { return false; }
-    }
+        if (key == null)
+            throw new ArgumentNullException($"{key} cannot be null");
 
-    public bool Remove(KeyValuePair<TKey, TValue> item)
-    {
-        return Remove(item.Key);
+        if (_nodes == null) throw new NullReferenceException($"{nameof(_nodes)} is null");
     }
 
     public Enumerator GetEnumerator()
@@ -523,18 +258,18 @@ public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>
         internal Enumerator(SerializableDictionary<TKey, TValue> dictionary)
         {
             _Dictionary = dictionary;
-            _Version = dictionary._Version;
+            _Version = dictionary.version;
             _Current = default(KeyValuePair<TKey, TValue>);
             _Index = 0;
         }
 
         public bool MoveNext()
         {
-            if (_Version != _Dictionary._Version)
+            if (_Version != _Dictionary.version)
                 throw new InvalidOperationException(string.Format("Enumerator version {0} != Dictionary version {1}",
-                    _Version, _Dictionary._Version));
+                    _Version, _Dictionary.version));
 
-            while (_Index < _Dictionary._Count)
+            while (_Index < _Dictionary.fullLength)
             {
                 if (_Dictionary._HashCodes[_Index] >= 0)
                 {
@@ -546,16 +281,16 @@ public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>
                 _Index++;
             }
 
-            _Index = _Dictionary._Count + 1;
+            _Index = _Dictionary.fullLength + 1;
             _Current = default(KeyValuePair<TKey, TValue>);
             return false;
         }
 
         void IEnumerator.Reset()
         {
-            if (_Version != _Dictionary._Version)
+            if (_Version != _Dictionary.version)
                 throw new InvalidOperationException(string.Format("Enumerator version {0} != Dictionary version {1}",
-                    _Version, _Dictionary._Version));
+                    _Version, _Dictionary.version));
 
             _Index = 0;
             _Current = default(KeyValuePair<TKey, TValue>);
