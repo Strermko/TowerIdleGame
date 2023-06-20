@@ -6,15 +6,15 @@ using UnityObject = UnityEngine.Object;
  
 public abstract class DictionaryDrawer<TK, TV> : PropertyDrawer
 {
-    private SerializableDictionary<TK, TV> _Dictionary;
-    private bool _Foldout;
-    private const float kButtonWidth = 18f;
+    private SerializableDictionary<TK, TV> _dictionary;
+    private bool _foldout;
+    private const float ButtonWidth = 18f;
  
     public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
     {
         CheckInitialize(property, label);
-        if (_Foldout)
-            return (_Dictionary.Count + 1) * 17f;
+        if (_foldout)
+            return (_dictionary.Count + 1) * 17f;
         return 17f;
     }
  
@@ -25,32 +25,32 @@ public abstract class DictionaryDrawer<TK, TV> : PropertyDrawer
         position.height = 17f;
  
         var foldoutRect = position;
-        foldoutRect.width -= 2 * kButtonWidth;
+        foldoutRect.width -= 2 * ButtonWidth;
         EditorGUI.BeginChangeCheck();
-        _Foldout = EditorGUI.Foldout(foldoutRect, _Foldout, label, true);
+        _foldout = EditorGUI.Foldout(foldoutRect, _foldout, label, true);
         if (EditorGUI.EndChangeCheck())
-            EditorPrefs.SetBool(label.text, _Foldout);
+            EditorPrefs.SetBool(label.text, _foldout);
  
         var buttonRect = position;
-        buttonRect.x = position.width - kButtonWidth + position.x;
-        buttonRect.width = kButtonWidth + 2;
+        buttonRect.x = position.width - ButtonWidth + position.x;
+        buttonRect.width = ButtonWidth + 2;
         
         if (GUI.Button(buttonRect, new GUIContent("x", "Clear dictionary"), EditorStyles.miniButton))
         {
             ClearDictionary();
         }
 
-        buttonRect.x -= kButtonWidth;
+        buttonRect.x -= ButtonWidth;
         
         if (GUI.Button(buttonRect, new GUIContent("+", "Add item"), EditorStyles.miniButtonRight))
         {
             AddNewItem();
         }
         
-        if (!_Foldout)
+        if (!_foldout)
             return;
  
-        foreach (var item in _Dictionary)
+        foreach (var item in _dictionary)
         {
             var key = item.Key;
             var value = item.Value;
@@ -66,8 +66,8 @@ public abstract class DictionaryDrawer<TK, TV> : PropertyDrawer
             {
                 try
                 {
-                    _Dictionary.Remove(key);
-                    _Dictionary.Add(newKey, value);
+                    _dictionary.Remove(key);
+                    _dictionary.Add(newKey, value);
                 }
                 catch(Exception e)
                 {
@@ -78,18 +78,18 @@ public abstract class DictionaryDrawer<TK, TV> : PropertyDrawer
  
             var valueRect = position;
             valueRect.x = position.width / 2 + 15;
-            valueRect.width = keyRect.width - kButtonWidth;
+            valueRect.width = keyRect.width - ButtonWidth;
             EditorGUI.BeginChangeCheck();
             value = DoField(valueRect, typeof(TV), value);
             if (EditorGUI.EndChangeCheck())
             {
-                _Dictionary[key] = value;
+                _dictionary[key] = value;
                 break;
             }
  
             var removeRect = valueRect;
             removeRect.x = valueRect.xMax + 2;
-            removeRect.width = kButtonWidth;
+            removeRect.width = ButtonWidth;
             if (GUI.Button(removeRect, new GUIContent("x", "Remove item"), EditorStyles.miniButtonRight))
             {
                 RemoveItem(key);
@@ -100,22 +100,22 @@ public abstract class DictionaryDrawer<TK, TV> : PropertyDrawer
  
     private void RemoveItem(TK key)
     {
-        _Dictionary.Remove(key);
+        _dictionary.Remove(key);
     }
  
     private void CheckInitialize(SerializedProperty property, GUIContent label)
     {
-        if (_Dictionary == null)
+        if (_dictionary == null)
         {
             var target = property.serializedObject.targetObject;
-            _Dictionary = fieldInfo.GetValue(target) as SerializableDictionary<TK, TV>;
-            if (_Dictionary == null)
+            _dictionary = fieldInfo.GetValue(target) as SerializableDictionary<TK, TV>;
+            if (_dictionary == null)
             {
-                _Dictionary = new SerializableDictionary<TK, TV>();
-                fieldInfo.SetValue(target, _Dictionary);
+                _dictionary = new SerializableDictionary<TK, TV>();
+                fieldInfo.SetValue(target, _dictionary);
             }
  
-            _Foldout = EditorPrefs.GetBool(label.text);
+            _foldout = EditorPrefs.GetBool(label.text);
         }
     }
  
@@ -150,7 +150,7 @@ public abstract class DictionaryDrawer<TK, TV> : PropertyDrawer
  
     private void ClearDictionary()
     {
-        _Dictionary.Clear();
+        _dictionary.Clear();
     }
  
     private void AddNewItem()
@@ -158,12 +158,13 @@ public abstract class DictionaryDrawer<TK, TV> : PropertyDrawer
         TK key;
         if (typeof(TK) == typeof(string))
             key = (TK)(object)"";
-        else key = default(TK);
+        else key = default;
  
         var value = default(TV);
         try
         {
-            _Dictionary.Add(key, value);
+            if (key != null) _dictionary.Add(key, value);
+            Debug.Log($"{_dictionary.GetNode(0).Key}");
         }
         catch(Exception e)
         {
@@ -172,5 +173,5 @@ public abstract class DictionaryDrawer<TK, TV> : PropertyDrawer
     }
 }
 
-[CustomPropertyDrawer(typeof(DictionaryOfCosts))]
+[CustomPropertyDrawer(typeof(DictionaryOfCost))]
 public class DictionaryOfCostsDrawer : DictionaryDrawer<ResourceType, int> { }

@@ -9,29 +9,19 @@ using UnityEngine.Serialization;
 [Serializable]
 public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>
 {
-    [SerializeField, HideInInspector] private List<TKey> keys;
-    [SerializeField, HideInInspector] private List<TValue> values;
     [SerializeField, HideInInspector] private int fullLength;
-    [SerializeField, HideInInspector] private int version;
     [SerializeField, HideInInspector] private int emptyCellsCount;
+    [SerializeField, HideInInspector] private int version;
 
     private DictionaryNode<TKey, TValue>[] _nodes;
     private const int DefaultCapacity = 4;
 
     private readonly IEqualityComparer<TKey> _comparer;
 
+    /// <summary>
+    /// All available constructors for SerializableDictionary
+    /// </summary>
     public SerializableDictionary() : this(DefaultCapacity) { }
-
-    public SerializableDictionary(int capacity = DefaultCapacity, IEqualityComparer<TKey> comparer = null)
-    {
-        if (capacity < 0) throw new ArgumentOutOfRangeException(nameof(capacity), "capacity must be positive");
-
-        if (capacity == 0) capacity = DefaultCapacity;
-
-        Initialize(capacity);
-        _comparer = (comparer ?? EqualityComparer<TKey>.Default);
-    }
-
     public SerializableDictionary(IDictionary<TKey, TValue> dictionary)
     {
         if (dictionary == null) throw new ArgumentException($"{nameof(dictionary)} cannot be null");
@@ -43,37 +33,60 @@ public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>
         }
         catch (Exception)
         {
-            //Clear();
             throw new ArgumentException($"{nameof(dictionary)} has unvalidated elements");
         }
     }
+    public SerializableDictionary(int capacity = DefaultCapacity, IEqualityComparer<TKey> comparer = null)
+    {
+        if (capacity < 0) throw new ArgumentOutOfRangeException(nameof(capacity), "capacity must be positive");
 
+        if (capacity == 0) capacity = DefaultCapacity;
+
+        Initialize(capacity);
+        _comparer = (comparer ?? EqualityComparer<TKey>.Default);
+    }
+
+    /// <summary>
+    /// Required params for serialization
+    /// </summary>
     public bool IsReadOnly => false;
     public int Count => fullLength - emptyCellsCount;
-    public bool ContainsValue(TValue value) => values.Contains(value);
-    public bool ContainsKey(TKey key) => keys.Contains(key, _comparer);
-    public ICollection<TKey> Keys => new ReadOnlyCollection<TKey>(keys);
-    public ICollection<TValue> Values => new ReadOnlyCollection<TValue>(values);
-
+    public ICollection<TKey> Keys
+    {
+        get
+        {
+            var listOfKeys = (from node in _nodes where node != null select node.Key).ToList();
+            return new ReadOnlyCollection<TKey>(listOfKeys);
+        }
+    }
+    public ICollection<TValue> Values
+    {
+        get
+        {
+            var listOfValues = (from node in _nodes where node != null select node.Value).ToList();
+            return new ReadOnlyCollection<TValue>(listOfValues);
+        }
+    }
     public TValue this[TKey key]
     {
         get
         {
             var index = FindIndex(key);
             if (FindIndex(key) >= 0)
-                return values[index];
+                return _nodes[index].Value;
             throw new KeyNotFoundException(key.ToString());
         }
 
         set => Insert(key, value, false);
     }
 
+    public bool ContainsValue(TValue value) => _nodes.Any(node => node != null && node.Value.Equals(value));
+    public bool ContainsKey(TKey key) => _nodes.Any(node => node != null && node.Key.Equals(key));
 
 
     private void Initialize(int capacity, IEqualityComparer<TKey> comparer = null)
     {
-        keys = new List<TKey>(capacity);
-        values = new List<TValue>(capacity);
+        capacity = capacity <= 0 ? DefaultCapacity : capacity;
         _nodes = new DictionaryNode<TKey, TValue>[capacity];
         fullLength = capacity;
         emptyCellsCount = capacity;
@@ -95,33 +108,32 @@ public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>
         if (key == null)
             throw new ArgumentNullException($"{key} cannot be null");
 
-        int index = FindIndex(key);
+        if (!ContainsKey(key)) return false;
 
-        if (index < 0) return false;
-        
-        keys.RemoveAt(index);
-        values.RemoveAt(index);
+        int hash = _comparer.GetHashCode(key) & 0x7FFFFFFF;
+        _nodes = _nodes.Where(node => node?.HashCode != hash).ToArray();
+        version++;
         return true;
-
     }
 
     public bool Remove(KeyValuePair<TKey, TValue> item)
     {
         return Remove(item.Key);
     }
-
+    
     private void Insert(TKey key, TValue value, bool add)
     {
         ValidateObjectStructure(key);
         
-        if(ContainsKey(key) && add) throw new ArgumentException("Key already exists: " + key);
+        if (ContainsKey(key) && add) throw new ArgumentException("Key already exists: " + key);
         
+        //If key already exists, replace value
         int hash = _comparer.GetHashCode(key) & 0x7FFFFFFF;
         for (int i = 0; i >= _nodes.Length; i--)
         {
-            if (_nodes[i].Key.GetHashCode() == hash)
+            if (_nodes[i].HashCode == hash)
             {
-                values[i] = value;
+                _nodes[i].Value = value;
                 version++;
                 return;
             }
@@ -140,13 +152,26 @@ public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>
             Resize();
         }
 
-        _nodes[index] = new DictionaryNode<TKey, TValue>(key, value)
+        var currentElement = index >= 1 ? _nodes[index - 1] : null;
+        var newElement = new DictionaryNode<TKey, TValue>(key, value)
         {
-            Previous = index >= 1 ? _nodes[index - 1] : null
+            HashCode = hash,
         };
-        
-        keys[index] = key;
-        values[index] = value;
+
+        if (currentElement != null)
+            currentElement.Next = newElement;
+
+        _nodes[index] = newElement;
+        version++;
+    }
+    
+    public void Clear()
+    {
+        if (fullLength <= 0)
+            return;
+
+        Initialize(4);
+        version++;
     }
 
     private void Resize()
@@ -158,74 +183,84 @@ public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>
         fullLength = newSize;
     }
 
-    public void Clear()
-    {
-        if (fullLength <= 0)
-            return;
-        
-        Initialize(0);
-        version++;
-    }
-
     private int FindIndex(TKey key)
     {
         ValidateObjectStructure(key);
 
-        if(ContainsKey(key)) return keys.IndexOf(key);
+        int hash = _comparer.GetHashCode(key) & 0x7FFFFFFF;
+
+        
+        for (int i = 0; i < _nodes.Length; i++)
+        {
+            if (_nodes[i]?.HashCode == hash)
+                return i;
+        }
 
         return -1;
+    }
+    
+    public bool Contains(KeyValuePair<TKey, TValue> item)
+    {
+        int index = FindIndex(item.Key);
+        return index >= 0 &&
+               EqualityComparer<TValue>.Default.Equals(_nodes[index].Value, item.Value);
     }
 
     public bool TryGetValue(TKey key, out TValue value)
     {
         ValidateObjectStructure(key);
-        
-        
+
         int index = FindIndex(key);
         if (index >= 0)
         {
-            value = _Values[index];
+            value = _nodes[index].Value;
             return true;
         }
 
-        value = default(TValue);
+        value = default;
         return false;
     }
 
-
-    public bool Contains(KeyValuePair<TKey, TValue> item)
+    public DictionaryNode<TKey, TValue> GetNode(int index)
     {
-        int index = FindIndex(item.Key);
-        return index >= 0 &&
-               EqualityComparer<TValue>.Default.Equals(_Values[index], item.Value);
+        if(index < 0 || index >= _nodes.Length)
+            throw new ArgumentOutOfRangeException(nameof(index), "Index is out of range");
+        
+        return _nodes[index];
+    }
+    public DictionaryNode<TKey, TValue> GetNode(TKey key)
+    {
+        ValidateObjectStructure(key);
+
+        int index = FindIndex(key);
+        if (index >= 0)
+            return _nodes[index];
+
+        return null;
+    }
+
+    private void ValidateObjectStructure(TKey key)
+    {
+        if (key == null)
+            throw new ArgumentNullException("Key can't be null");
+
+        if (_nodes == null) throw new NullReferenceException($"{nameof(_nodes)} is null");
     }
 
     public void CopyTo(KeyValuePair<TKey, TValue>[] array, int index)
     {
         if (array == null)
-            throw new ArgumentNullException("array");
+            throw new ArgumentNullException($"{nameof(array)} cannot be null");
 
         if (index < 0 || index > array.Length)
-            throw new ArgumentOutOfRangeException(string.Format("index = {0} array.Length = {1}", index, array.Length));
+            throw new ArgumentOutOfRangeException($"Index:{index} is out of range for given array {nameof(array)}");
 
         if (array.Length - index < Count)
             throw new ArgumentException(string.Format(
                 "The number of elements in the dictionary ({0}) is greater than the available space from index to the end of the destination array {1}.",
                 Count, array.Length));
 
-        for (int i = 0; i < fullLength; i++)
-        {
-            if (_HashCodes[i] >= 0)
-                array[index++] = new KeyValuePair<TKey, TValue>(_Keys[i], _Values[i]);
-        }
-    }
-    
-    private void ValidateObjectStructure(TKey key)
-    {
-        if (key == null)
-            throw new ArgumentNullException($"{key} cannot be null");
-
-        if (_nodes == null) throw new NullReferenceException($"{nameof(_nodes)} is null");
+        Array.Copy(_nodes, index, array, 0, _nodes.Length - index);
     }
 
     public Enumerator GetEnumerator()
@@ -245,60 +280,48 @@ public class SerializableDictionary<TKey, TValue> : IDictionary<TKey, TValue>
 
     public struct Enumerator : IEnumerator<KeyValuePair<TKey, TValue>>
     {
-        private readonly SerializableDictionary<TKey, TValue> _Dictionary;
-        private int _Version;
-        private int _Index;
-        private KeyValuePair<TKey, TValue> _Current;
+        private readonly SerializableDictionary<TKey, TValue> _dictionary;
+        private readonly int _version;
 
-        public KeyValuePair<TKey, TValue> Current
-        {
-            get { return _Current; }
-        }
+        public KeyValuePair<TKey, TValue> Current { get; private set; }
+        object IEnumerator.Current => Current;
 
         internal Enumerator(SerializableDictionary<TKey, TValue> dictionary)
         {
-            _Dictionary = dictionary;
-            _Version = dictionary.version;
-            _Current = default(KeyValuePair<TKey, TValue>);
-            _Index = 0;
+            _dictionary = dictionary;
+            _version = dictionary.version;
+            if (_dictionary.Keys.Count > 0)
+            {
+                var node = dictionary.GetNode(0);
+                Current = new KeyValuePair<TKey, TValue>(node.Key, node.Value);
+            }
+            Current = default;
         }
 
         public bool MoveNext()
         {
-            if (_Version != _Dictionary.version)
+            if (_version != _dictionary.version)
                 throw new InvalidOperationException(string.Format("Enumerator version {0} != Dictionary version {1}",
-                    _Version, _Dictionary.version));
+                    _version, _dictionary.version));
 
-            while (_Index < _Dictionary.fullLength)
+            var node = _dictionary.GetNode(Current.Key);
+            if(node?.Next != null)
             {
-                if (_Dictionary._HashCodes[_Index] >= 0)
-                {
-                    _Current = new KeyValuePair<TKey, TValue>(_Dictionary._Keys[_Index], _Dictionary._Values[_Index]);
-                    _Index++;
-                    return true;
-                }
-
-                _Index++;
+                Current = new KeyValuePair<TKey, TValue>(node.Next.Key, node.Next.Value);
+                return true;
             }
-
-            _Index = _Dictionary.fullLength + 1;
-            _Current = default(KeyValuePair<TKey, TValue>);
+            
+            Current = default;
             return false;
         }
 
         void IEnumerator.Reset()
         {
-            if (_Version != _Dictionary.version)
+            if (_version != _dictionary.version)
                 throw new InvalidOperationException(string.Format("Enumerator version {0} != Dictionary version {1}",
-                    _Version, _Dictionary.version));
-
-            _Index = 0;
-            _Current = default(KeyValuePair<TKey, TValue>);
-        }
-
-        object IEnumerator.Current
-        {
-            get { return Current; }
+                    _version, _dictionary.version));
+            
+            Current = default;
         }
 
         public void Dispose() { }
