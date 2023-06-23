@@ -13,9 +13,7 @@ public abstract class DictionaryDrawer<TK, TV> : PropertyDrawer
     public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
     {
         CheckInitialize(property, label);
-        if (_foldout)
-            return (_dictionary.Count + 1) * 17f;
-        return 17f;
+        return _foldout ? (_dictionary.Count + 1) * 17f : 17f;
     }
  
     public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
@@ -71,7 +69,7 @@ public abstract class DictionaryDrawer<TK, TV> : PropertyDrawer
                 }
                 catch(Exception e)
                 {
-                    Debug.Log(e.Message);
+                    Debug.LogError(e.Message);
                 }
                 break;
             }
@@ -164,11 +162,10 @@ public abstract class DictionaryDrawer<TK, TV> : PropertyDrawer
         try
         {
             if (key != null) _dictionary.Add(key, value);
-            Debug.Log($"{_dictionary.GetNode(0).Key}");
         }
         catch(Exception e)
         {
-            Debug.Log(e.Message);
+            Debug.LogError(e.Message);
         }
     }
 }
