@@ -9,7 +9,9 @@ public class PriceUI : MonoBehaviour
     {
         foreach(var element in dictionaryOfCost.GetPairs())
         {
-            Debug.Log(element.Key);
+            CostUI costUI = Instantiate(costUIPrefab, transform);
+            costUI.CreateComponent(element.Key, element.Value);
+            costUI.transform.SetParent(gameObject.transform);
         }
     }
 }

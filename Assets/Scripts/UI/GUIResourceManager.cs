@@ -5,7 +5,7 @@ using UnityEngine;
 
 public class GUIResourceManager : MonoBehaviour, IDataPersistance
 {
-    private Dictionary<ResourceType, ResourcesUI> _resourceComponents = new Dictionary<ResourceType, ResourcesUI>();
+    private Dictionary<ResourceType, ResourcesUI> _resourceComponents = new();
 
     private void Awake()
     {
@@ -36,7 +36,7 @@ public class GUIResourceManager : MonoBehaviour, IDataPersistance
 
         foreach (var resource in _resourceComponents)
         {
-            gameData.resources.TryGetValue(resource.Key, out int value);
+            gameData.Resources.TryGetValue(resource.Key, out int value);
             resource.Value.UpdateComponent(value);
         }
     }
@@ -45,7 +45,7 @@ public class GUIResourceManager : MonoBehaviour, IDataPersistance
     {
         foreach (var resource in _resourceComponents)
         {
-            gameData.resources[resource.Key] = resource.Value.currentValue;
+            gameData.Resources[resource.Key] = resource.Value.currentValue;
         }
     }
 }
