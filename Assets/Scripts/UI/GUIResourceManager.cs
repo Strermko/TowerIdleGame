@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Unity.VisualScripting;
 using UnityEngine;
 
 public class GUIResourceManager : MonoBehaviour, IDataPersistance
@@ -36,8 +35,8 @@ public class GUIResourceManager : MonoBehaviour, IDataPersistance
 
         foreach (var resource in _resourceComponents)
         {
-            gameData.Resources.TryGetValue(resource.Key, out int value);
-            resource.Value.UpdateComponent(value);
+            var resourceData = gameData.GetResourceByType(resource.Key);
+            resource.Value.UpdateComponent(resourceData.Value);
         }
     }
 
@@ -45,7 +44,8 @@ public class GUIResourceManager : MonoBehaviour, IDataPersistance
     {
         foreach (var resource in _resourceComponents)
         {
-            gameData.Resources[resource.Key] = resource.Value.currentValue;
+            var resourceData = gameData.GetResourceByType(resource.Key);
+            resourceData.value = resource.Value.currentValue;
         }
     }
 }

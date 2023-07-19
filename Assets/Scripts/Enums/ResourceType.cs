@@ -1,6 +1,4 @@
-using System;
-
-[Serializable]
+[System.Serializable]
 public enum ResourceType
 {
     Wood,
