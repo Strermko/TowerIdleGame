@@ -16,6 +16,7 @@ public class PopupTextUI : MonoBehaviour
     {
         _randomVector = new Vector3(Random.Range(-axesRange, axesRange), movingSpeed);
     }
+    
     public void Setup(int value)
     {
         GetComponent<TMPro.TextMeshPro>().text = $"+{value.ToString()}";

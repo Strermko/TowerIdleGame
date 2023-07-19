@@ -1,9 +1,11 @@
 using System.Collections.Generic;
 
+
 [System.Serializable]
 public class GameData
 {
     public Dictionary<ResourceType, int> Resources = new();
+
 
     public GameData()
     {
