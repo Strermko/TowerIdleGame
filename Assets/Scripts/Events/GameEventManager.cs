@@ -21,4 +21,10 @@ public class GameEventManager : MonoBehaviour
     {
         addResource?.Invoke(type, value);
     }
+    
+    public event Action<ResourceType, int> buyUpgrade;
+    public void BuyUpgrade(ResourceType type, int value)
+    {
+        buyUpgrade?.Invoke(type, value);
+    }
 }

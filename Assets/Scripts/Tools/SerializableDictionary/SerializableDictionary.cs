@@ -1,42 +1,43 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 [Serializable]
 public class SerializableDictionary<TKey, TValue> : Dictionary<TKey, TValue>
 {
     [SerializeField]
-    private List<TKey> _keys = new List<TKey>();
+    protected List<TKey> keys = new();
 
     [SerializeField]
-    private List<TValue> _values = new List<TValue>();
+    protected List<TValue> values = new();
 
     public void OnBeforeSerialize()
     {
-        _keys.Clear();
-        _values.Clear();
+        keys.Clear();
+        values.Clear();
         foreach (var pair in this)
         {
-            _keys.Add(pair.Key);
-            _values.Add(pair.Value);
+            keys.Add(pair.Key);
+            values.Add(pair.Value);
         }
     }
 
     public void OnAfterDeserialize()
     {
         this.Clear();
-        for (int i = 0; i < _keys.Count; i++)
+        for (int i = 0; i < keys.Count; i++)
         {
-            this.Add(_keys[i], _values[i]);
+            this.Add(keys[i], values[i]);
         }
     }
 
     public List<DictionaryNode<TKey, TValue>> GetPairs()
     {
         var pairs = new List<DictionaryNode<TKey, TValue>>();
-        for (int i = 0; i < _keys.Count; i++)
+        for (int i = 0; i < keys.Count; i++)
         {
-            pairs.Add(new DictionaryNode<TKey, TValue>(_keys[i], _values[i]));
+            pairs.Add(new DictionaryNode<TKey, TValue>(keys[i], values[i]));
         }
 
         return pairs;
